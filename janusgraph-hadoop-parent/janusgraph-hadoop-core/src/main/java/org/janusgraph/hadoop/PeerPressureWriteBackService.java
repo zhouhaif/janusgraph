@@ -32,7 +32,7 @@ import java.util.function.Predicate;
 /**
  * Created by Think on 2019/4/18.
  */
-public class PeerPresureWriteBackService implements VertexProgram.WriteBackService<JavaPairRDD<Object, VertexWritable>, Object>, Serializable {
+public class PeerPressureWriteBackService implements VertexProgram.WriteBackService<JavaPairRDD<Object, VertexWritable>, Object>, Serializable {
     private Map<String, Object> configMap;
     private static final String VOTE_STRENGTH = "gremlin.peerPressureVertexProgram.voteStrength";
     private int commitSize = 10000;
