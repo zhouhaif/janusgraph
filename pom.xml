@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.janusgraph</groupId>
     <artifactId>janusgraph</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.0-bs0.0.1</version>
     <packaging>pom</packaging>
     <prerequisites>
         <maven>2.2.1</maven>
@@ -58,13 +58,21 @@
         <tag>v0.3.0</tag>
     </scm>
     <distributionManagement>
+        <!--<snapshotRepository>-->
+            <!--<id>ossrh</id>-->
+            <!--<url>https://oss.sonatype.org/content/repositories/snapshots</url>-->
+        <!--</snapshotRepository>-->
         <snapshotRepository>
-            <id>ossrh</id>
-            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+            <id>ext-release-local</id>
+            <url>http://maven:8081/artifactory/ext-release-local</url>
         </snapshotRepository>
+        <!--<repository>-->
+            <!--<id>ossrh</id>-->
+            <!--<url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>-->
+        <!--</repository>-->
         <repository>
-            <id>ossrh</id>
-            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+            <id>ext-release-local</id>
+            <url>http://maven:8081/artifactory/ext-release-local</url>
         </repository>
     </distributionManagement>
     <properties>
@@ -101,7 +109,7 @@
         <zookeeper.version>3.4.6</zookeeper.version>
         <jersey.version>1.9</jersey.version>
         <!-- align with org.apache.tinkerpop:tinkerpop -->
-        <netty4.version>4.0.56.Final</netty4.version>
+        <netty4.version>4.1.21.Final</netty4.version>
         <jna.version>4.0.0</jna.version>
         <kuali.s3.wagon.version>1.1.20</kuali.s3.wagon.version>
         <jasper.version>5.5.23</jasper.version>
@@ -143,6 +151,7 @@
         <module>janusgraph-doc</module>
         <module>janusgraph-solr</module>
         <module>janusgraph-examples</module>
+        <module>janusgraph-test-zhf</module>
     </modules>
     <repositories>
         <repository>
@@ -180,23 +189,23 @@
     <build>
         <directory>${basedir}/target</directory>
         <plugins>
-            <plugin>
-                <artifactId>maven-enforcer-plugin</artifactId>
-                <version>1.3.1</version>
-                <executions>
-                    <execution>
-                        <id>enforce-dependency-convergence</id>
-                        <goals>
-                            <goal>enforce</goal>
-                        </goals>
-                        <configuration>
-                            <rules>
-                                <DependencyConvergence />
-                            </rules>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+            <!--<plugin>-->
+                <!--<artifactId>maven-enforcer-plugin</artifactId>-->
+                <!--<version>1.3.1</version>-->
+                <!--<executions>-->
+                    <!--<execution>-->
+                        <!--<id>enforce-dependency-convergence</id>-->
+                        <!--<goals>-->
+                            <!--<goal>enforce</goal>-->
+                        <!--</goals>-->
+                        <!--<configuration>-->
+                            <!--<rules>-->
+                                <!--<DependencyConvergence />-->
+                            <!--</rules>-->
+                        <!--</configuration>-->
+                    <!--</execution>-->
+                <!--</executions>-->
+            <!--</plugin>-->
             <plugin>
                 <artifactId>maven-release-plugin</artifactId>
                 <configuration>
