@@ -16,10 +16,15 @@ package org.janusgraph.diskstorage.log.kcvs;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.*;
+import org.apache.hadoop.hbase.TableNotEnabledException;
+import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.janusgraph.core.JanusGraphException;
+import org.janusgraph.core.schema.JanusGraphManagement;
 import org.janusgraph.diskstorage.*;
 import org.janusgraph.diskstorage.util.time.*;
 
+import org.janusgraph.graphdb.database.StandardJanusGraph;
 import org.janusgraph.graphdb.database.management.ManagementLogger;
 import org.janusgraph.diskstorage.configuration.ConfigOption;
 import org.janusgraph.diskstorage.configuration.Configuration;
@@ -32,7 +37,9 @@ import org.janusgraph.diskstorage.util.*;
 import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.*;
 
 import org.janusgraph.graphdb.configuration.PreInitializeConfigOptions;
+import org.janusgraph.graphdb.database.management.ManagementSystem;
 import org.janusgraph.graphdb.database.serialize.DataOutput;
+import org.janusgraph.graphdb.management.JanusGraphManager;
 import org.janusgraph.util.system.BackgroundThread;
 
 import org.slf4j.Logger;
@@ -44,6 +51,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntConsumer;
+import java.util.stream.IntStream;
 
 /**
  * Implementation of {@link Log} wrapped around a {@link KeyColumnValueStore}. Each message is written as a column-value pair ({@link Entry})
@@ -305,6 +314,30 @@ public class KCVSLog implements Log, BackendOperation.TransactionalProvider {
             }
         }
         writeSetting(manager.senderId, MESSAGE_COUNTER_COLUMN, numMsgCounter.get());
+        store.close();
+        manager.closedLog(this);
+    }
+
+    public synchronized void forceClose() throws BackendException {
+        if (!isOpen) return;
+        this.isOpen = false;
+        if (readExecutor!=null) readExecutor.shutdown();
+        if (sendThread!=null) sendThread.close(CLOSE_DOWN_WAIT);
+        if (readExecutor!=null) {
+            try {
+                readExecutor.awaitTermination(1,TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                log.error("Could not terminate reader thread pool for KCVSLog "+name+" due to interruption");
+            }
+            if (!readExecutor.isTerminated()) {
+                readExecutor.shutdownNow();
+                log.error("Reader thread pool for KCVSLog "+name+" did not shut down in time - could not clean up or set read markers");
+            } else {
+                for (MessagePuller puller : msgPullers) {
+                    puller.close();
+                }
+            }
+        }
         store.close();
         manager.closedLog(this);
     }
@@ -620,7 +653,7 @@ public class KCVSLog implements Log, BackendOperation.TransactionalProvider {
             int pos = 0;
             for (int partitionId : manager.readPartitionIds) {
                 for (int bucketId = 0; bucketId < numBuckets; bucketId++) {
-                    msgPullers[pos]=new MessagePuller(partitionId,bucketId);
+                    msgPullers[pos]=new MessagePuller(partitionId,bucketId,this);
 
                     log.debug("Creating log read executor: initialDelay={} delay={} unit={}", INITIAL_READER_DELAY.toNanos(), readPollingInterval.toNanos(), TimeUnit.NANOSECONDS);
                     readExecutor.scheduleWithFixedDelay(
@@ -667,10 +700,17 @@ public class KCVSLog implements Log, BackendOperation.TransactionalProvider {
 
         private Instant messageTimeStart;
 
+        private KCVSLog kcvsLog;
+
         private MessagePuller(final int partitionId, final int bucketId) {
             this.bucketId = bucketId;
             this.partitionId = partitionId;
             initializeTimepoint();
+        }
+
+        private MessagePuller(final int partitionId, final int bucketId,final KCVSLog kcvsLog) {
+            this(partitionId,bucketId);
+            this.kcvsLog = kcvsLog;
         }
 
         @Override
@@ -742,6 +782,21 @@ public class KCVSLog implements Log, BackendOperation.TransactionalProvider {
                 messageTimeStart = messageTimeEnd;
             } catch (Throwable e) {
                 log.warn("Could not read messages for timestamp ["+messageTimeStart+"] (this read will be retried)",e);
+                while(e.getCause()!=null){
+                    e = e.getCause();
+                }
+                if(kcvsLog!=null&&(e instanceof TableNotFoundException||e instanceof TableNotEnabledException)){
+                    try {
+                        this.close();
+                        kcvsLog.forceClose();
+                        final JanusGraphManager jgm = JanusGraphManager.getInstance();
+                        String graphName = manager.storeManager.getName();
+                        jgm.removeGraph(graphName);
+                        log.warn("Backend table {} not found and kcvsLog is closed!",graphName);
+                    } catch (Exception e1) {
+                        log.error("Backend table not found but kcvsLog can not be closed!",e1);
+                    }
+                }
             }
         }
 

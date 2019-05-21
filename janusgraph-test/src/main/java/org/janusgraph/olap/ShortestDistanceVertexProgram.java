@@ -15,12 +15,7 @@
 package org.janusgraph.olap;
 
 import org.apache.commons.configuration.Configuration;
-import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
-import org.apache.tinkerpop.gremlin.process.computer.Memory;
-import org.apache.tinkerpop.gremlin.process.computer.MessageCombiner;
-import org.apache.tinkerpop.gremlin.process.computer.MessageScope;
-import org.apache.tinkerpop.gremlin.process.computer.Messenger;
-import org.apache.tinkerpop.gremlin.process.computer.VertexComputeKey;
+import org.apache.tinkerpop.gremlin.process.computer.*;
 import org.apache.tinkerpop.gremlin.process.computer.util.AbstractVertexProgramBuilder;
 import org.apache.tinkerpop.gremlin.process.computer.util.StaticVertexProgram;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -91,6 +86,11 @@ public class ShortestDistanceVertexProgram extends StaticVertexProgram<Long> {
         final Set<MessageScope> set = new HashSet<>();
         set.add(incidentMessageScope);
         return set;
+    }
+
+    @Override
+    public <P extends WriteBackService> Class<P> getServiceClass() throws ClassNotFoundException {
+        return null;
     }
 
     @Override

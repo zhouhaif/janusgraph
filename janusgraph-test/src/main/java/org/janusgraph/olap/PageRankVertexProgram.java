@@ -15,11 +15,7 @@
 package org.janusgraph.olap;
 
 import com.google.common.collect.ImmutableSet;
-import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
-import org.apache.tinkerpop.gremlin.process.computer.Memory;
-import org.apache.tinkerpop.gremlin.process.computer.MessageScope;
-import org.apache.tinkerpop.gremlin.process.computer.Messenger;
-import org.apache.tinkerpop.gremlin.process.computer.VertexComputeKey;
+import org.apache.tinkerpop.gremlin.process.computer.*;
 import org.apache.tinkerpop.gremlin.process.computer.util.AbstractVertexProgramBuilder;
 import org.apache.tinkerpop.gremlin.process.computer.util.StaticVertexProgram;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -111,6 +107,11 @@ public class PageRankVertexProgram extends StaticVertexProgram<Double> {
     @Override
     public Set<MessageScope> getMessageScopes(Memory memory) {
         return ImmutableSet.of(outE, inE);
+    }
+
+    @Override
+    public <P extends WriteBackService> Class<P> getServiceClass() throws ClassNotFoundException {
+        return null;
     }
 
     @Override

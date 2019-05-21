@@ -72,6 +72,7 @@ public class JanusGraphManager implements GraphManager {
         initialize();
         // Open graphs defined at server start in settings.graphs
         settings.graphs.forEach((key, value) -> {
+            log.info("JanusGraphManager opening graph {}",value);
             final StandardJanusGraph graph = (StandardJanusGraph) JanusGraphFactory.open(value, key);
             if (key.toLowerCase().equals(CONFIGURATION_MANAGEMENT_GRAPH_KEY.toLowerCase())) {
                 new ConfigurationManagementGraph(graph);
@@ -84,6 +85,7 @@ public class JanusGraphManager implements GraphManager {
             final String errMsg = "You may not instantiate a JanusGraphManager. The single instance should be handled by Tinkerpop's GremlinServer startup processes.";
             throw new JanusGraphManagerException(errMsg);
         }
+        log.info("Init JanusGraphManager");
         instance = this;
     }
 
@@ -119,9 +121,17 @@ public class JanusGraphManager implements GraphManager {
         public void run() {
             ConfiguredGraphFactory.getGraphNames().forEach(it -> {
                 try {
+                    Graph old = graphs.get(it);
+                    if (old != null && old instanceof StandardJanusGraph && ((StandardJanusGraph) old).isClosed()) {
+                        removeGraph(it);
+                        log.warn("Graph {} been closed and is removed from Jmg and will be recreated",it);
+                    }
                     final Graph graph = ConfiguredGraphFactory.open(it);
                     this.gremlinExecutor.getScriptEngineManager().put(it, graph);
                     this.gremlinExecutor.getScriptEngineManager().put(it + "_traversal", graph.traversal());
+                    this.gremlinExecutor.getScriptEngineManager().put(it + "_traversal_withComputer", graph.traversal().withComputer());
+                    graphs.put(it,graph);
+                    log.info("Reloading graph {} and bind to gremlinExecutor",it);
                 } catch (Exception e) {
                     // cannot open graph, do nothing
                     log.error(String.format("Failed to open graph %s with the following error:\n %s.\n" +
@@ -250,6 +260,7 @@ public class JanusGraphManager implements GraphManager {
             if (null != gremlinExecutor) {
                 this.gremlinExecutor.getScriptEngineManager().put(gName, graph);
                 this.gremlinExecutor.getScriptEngineManager().put(gName + "_traversal", graph.traversal());
+                this.gremlinExecutor.getScriptEngineManager().put(gName + "_traversal_withComputer", graph.traversal().withComputer());
             }
             return graph;
         } else {
@@ -263,14 +274,24 @@ public class JanusGraphManager implements GraphManager {
             if (null != gremlinExecutor) {
                 this.gremlinExecutor.getScriptEngineManager().put(gName, graph);
                 this.gremlinExecutor.getScriptEngineManager().put(gName + "_traversal", graph.traversal());
+                this.gremlinExecutor.getScriptEngineManager().put(gName + "_traversal_withComputer", graph.traversal().withComputer());
             }
             return graph;
         }
     }
 
+    public GremlinExecutor getGremlinExecutor(){
+        return this.gremlinExecutor;
+    }
+
     @Override
     public Graph removeGraph(String gName) {
         if (gName == null) return null;
+//        try {
+//            graphs.get(gName).close();
+//        } catch (Exception e) {
+//            log.error("{} close error!",gName);
+//    }
         return graphs.remove(gName);
     }
 }

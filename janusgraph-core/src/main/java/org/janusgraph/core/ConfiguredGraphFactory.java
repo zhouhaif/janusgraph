@@ -157,8 +157,8 @@ public class ConfiguredGraphFactory {
      */
     public static void drop(String graphName) throws BackendException, ConfigurationManagementGraphNotEnabledException, Exception {
         final StandardJanusGraph graph = (StandardJanusGraph) ConfiguredGraphFactory.close(graphName);
-        JanusGraphFactory.drop(graph);
         removeConfiguration(graphName);
+        JanusGraphFactory.drop(graph);
     }
 
     private static ConfigurationManagementGraph getConfigGraphManagementInstance() {
@@ -240,6 +240,20 @@ public class ConfiguredGraphFactory {
             "Thus, it and its traversal will not be bound on this server.", graphName, e.toString()));
         }
         configManagementGraph.removeConfiguration(graphName);
+    }
+
+    public static void forceCloseAllInstance(final JanusGraph graph) {
+        final ManagementSystem mgmt = (ManagementSystem) graph.openManagement();
+        for(String id:mgmt.getOpenInstances()){
+            if(isCurrentInstance(id)) continue;
+            mgmt.forceCloseInstance(id);
+            log.info("closed "+id);
+        }
+        mgmt.commit();
+    }
+
+    private static boolean isCurrentInstance(String id){
+        return id.contains("(current)");
     }
 
     private static void removeGraphFromCache(final JanusGraph graph) {
