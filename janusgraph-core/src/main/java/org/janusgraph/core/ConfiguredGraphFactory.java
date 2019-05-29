@@ -234,6 +234,7 @@ public class ConfiguredGraphFactory {
         try {
             final JanusGraph graph = open(graphName);
             removeGraphFromCache(graph);
+            forceCloseAllInstance(graph);
             graph.close();
         } catch (Exception e) {
             // cannot open graph, do nothing

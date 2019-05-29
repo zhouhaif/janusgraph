@@ -15,6 +15,7 @@
 package org.janusgraph.diskstorage.util;
 
 import com.google.common.base.Preconditions;
+import org.apache.hadoop.hbase.TableNotFoundException;
 import org.janusgraph.core.JanusGraphException;
 
 import org.janusgraph.diskstorage.util.time.TimestampProvider;
@@ -63,7 +64,7 @@ public class BackendOperation {
         long maxTime = System.currentTimeMillis()+totalWaitTime.toMillis();
         Duration waitTime = pertubTime(BASE_REATTEMPT_TIME);
         BackendException lastException;
-        while (true) {
+        loop1:while (true) {
             try {
                 return exe.call();
             } catch (final Throwable e) {
@@ -71,7 +72,12 @@ public class BackendOperation {
                 Throwable ex = e;
                 BackendException storeEx = null;
                 do {
-                    if (ex instanceof BackendException) storeEx = (BackendException)ex;
+                    if (ex instanceof BackendException){
+                        storeEx = (BackendException)ex;
+                    }else if (ex instanceof TableNotFoundException){
+                        log.warn("catch Can not found table exception and retry will be ignore");
+                        throw new TemporaryBackendException("Could not successfully complete backend operation due to repeated temporary exceptions after "+totalWaitTime,ex);
+                    }
                 } while ((ex=ex.getCause())!=null);
                 if (storeEx!=null && storeEx instanceof TemporaryBackendException) {
                     lastException = storeEx;

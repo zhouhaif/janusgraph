@@ -788,11 +788,15 @@ public class KCVSLog implements Log, BackendOperation.TransactionalProvider {
                 if(kcvsLog!=null&&(e instanceof TableNotFoundException||e instanceof TableNotEnabledException)){
                     try {
                         this.close();
-                        kcvsLog.forceClose();
+                        manager.forceClose();
                         final JanusGraphManager jgm = JanusGraphManager.getInstance();
                         String graphName = manager.storeManager.getName();
+                        if(jgm.getGraph(graphName) instanceof StandardJanusGraph){
+                            ((StandardJanusGraph) jgm.getGraph(graphName)).getBackend().getSystemTxLog().forceClose();
+                            ((StandardJanusGraph) jgm.getGraph(graphName)).closeForce();
+                        }
                         jgm.removeGraph(graphName);
-                        log.warn("Backend table {} not found and kcvsLog is closed!",graphName);
+                        log.warn("Backend table {} not found and is removed from jgm!",graphName);
                     } catch (Exception e1) {
                         log.error("Backend table not found but kcvsLog can not be closed!",e1);
                     }

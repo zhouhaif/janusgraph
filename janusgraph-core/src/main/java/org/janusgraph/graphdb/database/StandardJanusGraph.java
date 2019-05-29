@@ -200,6 +200,37 @@ public class StandardJanusGraph extends JanusGraphBlueprintsGraph {
         }
     }
 
+    public synchronized void closeForce(){
+        if(!isOpen) return;
+        Map<JanusGraphTransaction, RuntimeException> txCloseExceptions = new HashMap<>();
+        try{
+            for (StandardJanusGraphTx otx : openTransactions) {
+                try {
+                    otx.close();
+                } catch (RuntimeException e) {
+                    log.warn("Unable to close transaction {}", otx, e);
+                    txCloseExceptions.put(otx, e);
+                }
+            }
+            super.close();
+            IOUtils.closeQuietly(idAssigner);
+            IOUtils.closeQuietly(backend);
+            IOUtils.closeQuietly(queryCache);
+            IOUtils.closeQuietly(serializer);
+        } finally {
+            isOpen = false;
+        }
+        if (1 == txCloseExceptions.size()) {
+            // TP3's test suite requires that this be of type ISE
+            throw new IllegalStateException("Unable to close transaction",
+                Iterables.getOnlyElement(txCloseExceptions.values()));
+        } else if (1 < txCloseExceptions.size()) {
+            throw new IllegalStateException(String.format(
+                "Unable to close %s transactions (see warnings in log output for details)",
+                txCloseExceptions.size()));
+        }
+    }
+
     private synchronized void closeInternal() {
 
         if (!isOpen) return;

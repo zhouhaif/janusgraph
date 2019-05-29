@@ -215,9 +215,11 @@ public class KCVSLogManager implements LogManager {
         if (0 < indexStoreTTL) {
             storeOptions.put(StoreMetaData.TTL, indexStoreTTL);
         }
-        KCVSLog log = new KCVSLog(name,this,storeManager.openDatabase(name, storeOptions),configuration);
-        openLogs.put(name,log);
-        return log;
+
+        KCVSLog log1 = new KCVSLog(name,this,storeManager.openDatabase(name, storeOptions),configuration);
+        log.info("Open KCVSLong {}-{},graph : {}",log1.hashCode(),log1.getName(),this.storeManager.getName());
+        openLogs.put(name,log1);
+        return log1;
     }
 
     /**
@@ -237,6 +239,15 @@ public class KCVSLogManager implements LogManager {
          * log.close() -> manager.closedLog(log) -> openLogs.remove(log.getName()).
          */
         for (KCVSLog log : ImmutableMap.copyOf(openLogs).values()) log.close();
+
+        IOUtils.closeQuietly(serializer);
+    }
+
+    public synchronized void forceClose() throws BackendException {
+        for (KCVSLog kcvsLog : ImmutableMap.copyOf(openLogs).values()){
+            log.info("Closing KCVSLong {}-{},graph : {}",kcvsLog.hashCode(),kcvsLog.getName(),this.storeManager.getName());
+            kcvsLog.forceClose();
+        }
 
         IOUtils.closeQuietly(serializer);
     }
