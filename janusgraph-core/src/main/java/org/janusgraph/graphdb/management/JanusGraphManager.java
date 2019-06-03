@@ -14,6 +14,10 @@
 
 package org.janusgraph.graphdb.management;
 
+import org.apache.commons.configuration.MapConfiguration;
+import org.apache.tinkerpop.gremlin.hadoop.structure.HadoopGraph;
+import org.apache.tinkerpop.gremlin.process.computer.Computer;
+import org.apache.tinkerpop.gremlin.spark.process.computer.SparkGraphComputer;
 import org.janusgraph.graphdb.database.StandardJanusGraph;
 import org.janusgraph.core.JanusGraphFactory;
 import org.janusgraph.core.ConfiguredGraphFactory;
@@ -56,8 +60,9 @@ public class JanusGraphManager implements GraphManager {
     private final Map<String, Graph> graphs = new ConcurrentHashMap<>();
     private final Map<String, TraversalSource> traversalSources = new ConcurrentHashMap<>();
     private final Object instantiateGraphLock = new Object();
+    private final Object instantiateHadoopGraphLock = new Object();
     private GremlinExecutor gremlinExecutor = null;
-
+    private String hadoopGraphPrefix = "hadoop_";
     private static JanusGraphManager instance = null;
     private static final String CONFIGURATION_MANAGEMENT_GRAPH_KEY = ConfigurationManagementGraph.class.getSimpleName();
 
@@ -127,10 +132,14 @@ public class JanusGraphManager implements GraphManager {
                         log.warn("Graph {} been closed and is removed from Jmg and will be recreated",it);
                     }
                     final Graph graph = ConfiguredGraphFactory.open(it);
+                    final Graph graph2 = ConfiguredGraphFactory.openHadoopGraph(it);
                     this.gremlinExecutor.getScriptEngineManager().put(it, graph);
                     this.gremlinExecutor.getScriptEngineManager().put(it + "_traversal", graph.traversal());
                     this.gremlinExecutor.getScriptEngineManager().put(it + "_traversal_withComputer", graph.traversal().withComputer());
+                    this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix + it, graph2);
+                    this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix + it + "_traversal_withSparkComputer", graph2.traversal().withComputer(Computer.compute(SparkGraphComputer.class).workers(100)));
                     graphs.put(it,graph);
+                    graphs.put(hadoopGraphPrefix+it,graph2);
                     log.info("Reloading graph {} and bind to gremlinExecutor",it);
                 } catch (Exception e) {
                     // cannot open graph, do nothing
@@ -210,7 +219,7 @@ public class JanusGraphManager implements GraphManager {
     @Override
     public void rollbackAll() {
         graphs.forEach((key, graph) -> {
-            if (graph.tx().isOpen()) {
+            if (!key.startsWith(hadoopGraphPrefix)&&graph.tx().isOpen()) {
                 graph.tx().rollback();
             }
         });
@@ -224,7 +233,7 @@ public class JanusGraphManager implements GraphManager {
     @Override
     public void commitAll() {
         graphs.forEach((key, graph) -> {
-            if (graph.tx().isOpen())
+            if (!key.startsWith(hadoopGraphPrefix)&&graph.tx().isOpen())
                 graph.tx().commit();
         });
     }
@@ -237,7 +246,7 @@ public class JanusGraphManager implements GraphManager {
     public void commitOrRollback(Set<String> graphSourceNamesToCloseTxOn, Boolean commit) {
         graphSourceNamesToCloseTxOn.forEach(e -> {
             final Graph graph = getGraph(e);
-            if (null != graph) {
+            if (!e.startsWith(hadoopGraphPrefix)&&null != graph) {
                 closeTx(graph, commit);
             }
         });
@@ -250,6 +259,43 @@ public class JanusGraphManager implements GraphManager {
             } else {
                 graph.tx().rollback();
             }
+        }
+    }
+
+    public Graph reloadHadoopGraph(String gName){
+        Graph graph;
+        synchronized (instantiateHadoopGraphLock) {
+            graph = HadoopGraph.open(new MapConfiguration(ConfiguredGraphFactory.getHadoopConfiguration(gName)));
+            graphs.put(hadoopGraphPrefix+gName, graph);
+        }
+        if (null != gremlinExecutor) {
+            this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix+gName, graph);
+            this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix+gName + "_traversal_withSparkComputer", graph.traversal().withComputer(Computer.compute(SparkGraphComputer.class).workers(100)));
+        }
+        return graph;
+    }
+
+    public Graph openHadoopGraph(String gName,Function<String, Graph> thunk) {
+        Graph graph= graphs.get(hadoopGraphPrefix+gName);
+        if (graph != null) {
+            if (null != gremlinExecutor) {
+                this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix+gName, graph);
+                this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix+gName + "_traversal_withSparkComputer", graph.traversal().withComputer(Computer.compute(SparkGraphComputer.class).workers(100)));
+            }
+            return graph;
+        } else {
+            synchronized (instantiateHadoopGraphLock) {
+                graph= graphs.get(hadoopGraphPrefix+gName);
+                if (graph == null) {
+                    graph = thunk.apply(gName);
+                    graphs.put(hadoopGraphPrefix+gName, graph);
+                }
+            }
+            if (null != gremlinExecutor) {
+                this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix+gName, graph);
+                this.gremlinExecutor.getScriptEngineManager().put(hadoopGraphPrefix+gName + "_traversal_withSparkComputer", graph.traversal().withComputer(Computer.compute(SparkGraphComputer.class).workers(100)));
+            }
+            return graph;
         }
     }
 

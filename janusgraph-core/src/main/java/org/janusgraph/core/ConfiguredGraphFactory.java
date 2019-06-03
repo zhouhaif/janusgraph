@@ -14,6 +14,7 @@
 
 package org.janusgraph.core;
 
+import org.apache.tinkerpop.gremlin.hadoop.structure.HadoopGraph;
 import org.janusgraph.graphdb.management.ConfigurationManagementGraph;
 import org.janusgraph.graphdb.management.JanusGraphManager;
 import org.janusgraph.graphdb.database.management.ManagementSystem;
@@ -78,17 +79,27 @@ public class ConfiguredGraphFactory {
 
         final Map<String, Object> graphConfigMap = configManagementGraph.getConfiguration(graphName);
         Preconditions.checkState(null == graphConfigMap, String.format("Configuration for graph %s already exists.", graphName));
+        final Map<String, Object> sparkGraphConfigMap = configManagementGraph.getHadoopConfiguration(graphName);
+        Preconditions.checkState(null == sparkGraphConfigMap, String.format("Configuration for sparkGraph %s already exists.", graphName));
         final Map<String, Object> templateConfigMap = configManagementGraph.getTemplateConfiguration();
+        final Map<String, Object> hadoopTemplateConfigMap = configManagementGraph.getHadoopTemplateConfiguration();
         Preconditions.checkState(null != templateConfigMap,
                                 "Please create a template Configuration using the ConfigurationManagementGraph#createTemplateConfiguration API.");
+        Preconditions.checkState(null != hadoopTemplateConfigMap,
+            "Please create a Hadoop template Configuration using the ConfigurationManagementGraph#createHadoopTemplateConfiguration API.");
         templateConfigMap.put(ConfigurationManagementGraph.PROPERTY_GRAPH_NAME, graphName);
         templateConfigMap.put(ConfigurationManagementGraph.PROPERTY_CREATED_USING_TEMPLATE, true);
-
+        hadoopTemplateConfigMap.put(ConfigurationManagementGraph.PROPERTY_GRAPH_NAME, graphName);
+        hadoopTemplateConfigMap.put(ConfigurationManagementGraph.HADOOP_PROPERTY_GRAPH_NAME, graphName);
+        hadoopTemplateConfigMap.put(ConfigurationManagementGraph.PROPERTY_CREATED_USING_TEMPLATE, true);
         final JanusGraphManager jgm = JanusGraphManagerUtility.getInstance();
         Preconditions.checkState(jgm != null, JANUS_GRAPH_MANAGER_EXPECTED_STATE_MSG);
         final CommonsConfiguration config = new CommonsConfiguration(new MapConfiguration(templateConfigMap));
+        final MapConfiguration hadoopConfig = new MapConfiguration(hadoopTemplateConfigMap);
         final JanusGraph g = (JanusGraph) jgm.openGraph(graphName, (String gName) -> new StandardJanusGraph(new GraphDatabaseConfiguration(config)));
+        Graph g2 = jgm.openHadoopGraph(graphName,(String gName) -> HadoopGraph.open(hadoopConfig));
         configManagementGraph.createConfiguration(new MapConfiguration(templateConfigMap));
+        configManagementGraph.createHadoopConfiguration(hadoopConfig);
         return g;
     }
 
@@ -113,6 +124,16 @@ public class ConfiguredGraphFactory {
         Preconditions.checkState(jgm != null, JANUS_GRAPH_MANAGER_EXPECTED_STATE_MSG);
         final CommonsConfiguration config = new CommonsConfiguration(new MapConfiguration(graphConfigMap));
         return (JanusGraph) jgm.openGraph(graphName, (String gName) -> new StandardJanusGraph(new GraphDatabaseConfiguration(config)));
+    }
+
+    public static HadoopGraph openHadoopGraph(String graphName) {
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        final Map<String, Object> hadoopGraphConfigMap = configManagementGraph.getHadoopConfiguration(graphName);
+        Preconditions.checkState(null != hadoopGraphConfigMap,
+            "Please create configuration for this hadoop graph using the ConfigurationManagementGraph#createHadoopConfiguration API.");
+        final JanusGraphManager jgm = JanusGraphManagerUtility.getInstance();
+        Preconditions.checkState(jgm != null, JANUS_GRAPH_MANAGER_EXPECTED_STATE_MSG);
+        return (HadoopGraph) jgm.openHadoopGraph(graphName,(String gName) -> HadoopGraph.open(new MapConfiguration(hadoopGraphConfigMap)));
     }
 
     /**
@@ -194,6 +215,23 @@ public class ConfiguredGraphFactory {
         configManagementGraph.createTemplateConfiguration(config);
     }
 
+    public static void createHadoopTemplateConfiguration(final Configuration config) {
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        configManagementGraph.createHadoopTemplateConfiguration(config);
+    }
+
+    public static boolean existTemplateConfiguration(){
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        if(configManagementGraph.getTemplateConfiguration()==null) return false;
+        return configManagementGraph.getTemplateConfiguration().size()!=0;
+    }
+
+    public static boolean existHadoopTemplateConfiguration(){
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        if(configManagementGraph.getHadoopTemplateConfiguration()==null) return false;
+        return configManagementGraph.getHadoopTemplateConfiguration().size()!=0;
+    }
+
     /**
      * Update configuration corresponding to supplied graphName; we update supplied existing
      * properties and add new ones to the {@link Configuration}; The supplied {@link Configuration} must include a
@@ -214,6 +252,17 @@ public class ConfiguredGraphFactory {
         configManagementGraph.updateConfiguration(graphName, config);
     }
 
+    public static void updateHadoopConfiguration(final String graphName, final Configuration config) {
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        configManagementGraph.updateHadoopConfiguration(graphName, config);
+        reloadHadoopGraph(graphName);
+    }
+
+    public static void reloadHadoopGraph(String graphName){
+        final JanusGraphManager jgm = JanusGraphManagerUtility.getInstance();
+        jgm.reloadHadoopGraph(graphName);
+    }
+
     /**
      * Update template configuration by updating supplied existing properties and adding new ones to the
      * {@link Configuration}; your updated Configuration may not contain the property "graph.graphname";
@@ -224,6 +273,11 @@ public class ConfiguredGraphFactory {
     public static void updateTemplateConfiguration(final Configuration config) {
         final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
         configManagementGraph.updateTemplateConfiguration(config);
+    }
+
+    public static void updateHadoopTemplateConfiguration(final Configuration config) {
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        configManagementGraph.updateHadoopTemplateConfiguration(config);
     }
 
     /**
@@ -284,6 +338,11 @@ public class ConfiguredGraphFactory {
     public static Map<String, Object> getConfiguration(final String configName) {
         final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
         return configManagementGraph.getConfiguration(configName);
+    }
+
+    public static Map<String, Object> getHadoopConfiguration(final String configName) {
+        final ConfigurationManagementGraph configManagementGraph = getConfigGraphManagementInstance();
+        return configManagementGraph.getHadoopConfiguration(configName);
     }
 
     /**

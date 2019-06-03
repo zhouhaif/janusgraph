@@ -54,10 +54,13 @@ public class ConfigurationManagementGraph {
     private static final Logger log = LoggerFactory.getLogger(ConfigurationManagementGraph.class);
     private static ConfigurationManagementGraph instance = null;
     public static final String PROPERTY_GRAPH_NAME = GraphDatabaseConfiguration.GRAPH_NAME.toStringWithoutRoot();
+    public static final String HADOOP_PROPERTY_GRAPH_NAME = "janusgraphmr.ioformat.conf.storage.hbase.table";
     public static final String PROPERTY_CREATED_USING_TEMPLATE = "Created_Using_Template";
     private static final String VERTEX_LABEL = "Configuration";
     private static final String GRAPH_NAME_INDEX = "Graph_Name_Index";
     private static final String PROPERTY_TEMPLATE = "Template_Configuration";
+    private static final String HADOOP_GRAPH = "Hadoop_Graph_Configuration";
+    private static final String HADOOP_PROPERTY_TEMPLATE = "Hadoop_Template_Configuration";
     private static final String TEMPLATE_INDEX = "Template_Index";
 
     private final StandardJanusGraph graph;
@@ -74,7 +77,7 @@ public class ConfigurationManagementGraph {
     public ConfigurationManagementGraph(StandardJanusGraph graph) {
         initialize();
         this.graph = graph;
-        createIndexIfDoesNotExist(GRAPH_NAME_INDEX, PROPERTY_GRAPH_NAME, String.class, true);
+        createIndexIfDoesNotExist(GRAPH_NAME_INDEX, PROPERTY_GRAPH_NAME, String.class, false);
         createIndexIfDoesNotExist(TEMPLATE_INDEX, PROPERTY_TEMPLATE, Boolean.class, false);
         createIndexIfDoesNotExist(PROPERTY_CREATED_USING_TEMPLATE, PROPERTY_CREATED_USING_TEMPLATE, Boolean.class, false);
     }
@@ -119,6 +122,22 @@ public class ConfigurationManagementGraph {
         final Vertex v = graph.addVertex(T.label, VERTEX_LABEL);
         map.forEach((key, value) -> v.property((String) key, value));
         v.property(PROPERTY_TEMPLATE, false);
+        v.property(HADOOP_PROPERTY_TEMPLATE, false);
+        v.property(HADOOP_GRAPH,false);
+        graph.tx().commit();
+    }
+
+    public void createHadoopConfiguration(final Configuration config) {
+        Preconditions.checkArgument(config.containsKey(HADOOP_PROPERTY_GRAPH_NAME),
+            String.format("Please include the property \"%s\" in your configuration.",
+                HADOOP_PROPERTY_GRAPH_NAME
+            ));
+        final Map<Object, Object> map = ConfigurationConverter.getMap(config);
+        final Vertex v = graph.addVertex(T.label, VERTEX_LABEL);
+        map.forEach((key, value) -> v.property((String) key, value));
+        v.property(PROPERTY_TEMPLATE, false);
+        v.property(HADOOP_PROPERTY_TEMPLATE, false);
+        v.property(HADOOP_GRAPH, true);
         graph.tx().commit();
     }
 
@@ -139,6 +158,21 @@ public class ConfigurationManagementGraph {
         final Map<Object, Object> map = ConfigurationConverter.getMap(config);
         final Vertex v = graph.addVertex();
         v.property(PROPERTY_TEMPLATE, true);
+        map.forEach((key, value) -> v.property((String) key, value));
+        graph.tx().commit();
+
+    }
+
+    public void createHadoopTemplateConfiguration(final Configuration config) {
+        Preconditions.checkArgument(!config.containsKey(PROPERTY_GRAPH_NAME),
+            String.format("Your template configuration may not contain the property \"%s\".",
+                PROPERTY_GRAPH_NAME
+            ));
+        Preconditions.checkState(null == getHadoopTemplateConfiguration(),
+            "You may only have one template configuration and one exists already.");
+        final Map<Object, Object> map = ConfigurationConverter.getMap(config);
+        final Vertex v = graph.addVertex();
+        v.property(HADOOP_PROPERTY_TEMPLATE, true);
         map.forEach((key, value) -> v.property((String) key, value));
         graph.tx().commit();
 
@@ -167,7 +201,36 @@ public class ConfigurationManagementGraph {
             graphName,
             graphName
         );
-        updateVertexWithProperties(PROPERTY_GRAPH_NAME, graphName, map);
+        updateVertexWithProperties(PROPERTY_GRAPH_NAME, graphName,HADOOP_GRAPH,false, map);
+    }
+
+    public void updateHadoopConfiguration(final String graphName, final Configuration config) {
+        final Map<Object, Object> map = ConfigurationConverter.getMap(config);
+        if (config.containsKey(PROPERTY_GRAPH_NAME)) {
+            final String graphNameOnConfig = (String) map.get(PROPERTY_GRAPH_NAME);
+            Preconditions.checkArgument(graphName.equals(graphNameOnConfig),
+                String.format("Supplied graphName %s does not match property value supplied on config: %s.",
+                    graphName,
+                    graphNameOnConfig
+                ));
+        } else {
+            map.put(PROPERTY_GRAPH_NAME, graphName);
+        }
+        if (config.containsKey(HADOOP_PROPERTY_GRAPH_NAME)) {
+            final String graphNameOnConfig = (String) map.get(HADOOP_PROPERTY_GRAPH_NAME);
+            Preconditions.checkArgument(graphName.equals(graphNameOnConfig),
+                String.format("Supplied graphName %s does not match property value supplied on config: %s.",
+                    graphName,
+                    graphNameOnConfig
+                ));
+        } else {
+            map.put(HADOOP_PROPERTY_GRAPH_NAME, graphName);
+        }
+        log.warn("Configuration {} is only guaranteed to take effect when graph {} has been closed and reopened on all Janus Graph Nodes.",
+            graphName,
+            graphName
+        );
+        updateVertexWithProperties(PROPERTY_GRAPH_NAME, graphName,HADOOP_GRAPH,true, map);
     }
 
     /**
@@ -186,6 +249,17 @@ public class ConfigurationManagementGraph {
                  "according to this new template configuration when the graph in question has been closed on every Janus Graph Node, its " +
                  "corresponding Configuration has been removed, and the graph has been recreated.");
         updateVertexWithProperties(PROPERTY_TEMPLATE, true, ConfigurationConverter.getMap(config));
+    }
+
+    public void updateHadoopTemplateConfiguration(final Configuration config) {
+        Preconditions.checkArgument(!config.containsKey(HADOOP_PROPERTY_TEMPLATE),
+            String.format("Your updated template configuration may not contain the property \"%s\".",
+                HADOOP_PROPERTY_TEMPLATE
+            ));
+        log.warn("Any graph configuration created using the template configuration are only guaranteed to have their configuration updated " +
+            "according to this new template configuration when the graph in question has been closed on every Janus Graph Node, its " +
+            "corresponding Configuration has been removed, and the graph has been recreated.");
+        updateVertexWithProperties(HADOOP_PROPERTY_TEMPLATE, true, ConfigurationConverter.getMap(config));
     }
 
 
@@ -210,12 +284,23 @@ public class ConfigurationManagementGraph {
      * @return Map&lt;String, Object&gt;
      */
     public Map<String, Object> getConfiguration(final String configName) {
-        final List<Map<String, Object>> graphConfiguration = graph.newTransaction().traversal().V().has(PROPERTY_GRAPH_NAME, configName).valueMap().toList();
+        final List<Map<String, Object>> graphConfiguration = graph.newTransaction().traversal().V().has(HADOOP_GRAPH,false).has(PROPERTY_GRAPH_NAME, configName).valueMap().toList();
         if (graphConfiguration.isEmpty()) return null;
         else if (graphConfiguration.size() > 1) { // this case shouldn't happen because our index has a unique constraint
             log.warn("Your configuration management graph is an a bad state. Please " +
                      "ensure you have just one configuration per graph. The behavior " +
                      "of the class' APIs are henceforth unpredictable until this is fixed.");
+        }
+        return deserializeVertexProperties(graphConfiguration.get(0));
+    }
+
+    public Map<String, Object> getHadoopConfiguration(final String configName) {
+        final List<Map<String, Object>> graphConfiguration = graph.newTransaction().traversal().V().has(HADOOP_GRAPH,true).has(PROPERTY_GRAPH_NAME, configName).valueMap().toList();
+        if (graphConfiguration.isEmpty()) return null;
+        else if (graphConfiguration.size() > 1) { // this case shouldn't happen because our index has a unique constraint
+            log.warn("Your configuration management graph is an a bad state. Please " +
+                "ensure you have just one configuration per graph. The behavior " +
+                "of the class' APIs are henceforth unpredictable until this is fixed.");
         }
         return deserializeVertexProperties(graphConfiguration.get(0));
     }
@@ -227,7 +312,7 @@ public class ConfigurationManagementGraph {
      * @return List&lt;Map&lt;String, Object&gt;&gt;
      */
     public List<Map<String, Object>> getConfigurations() {
-        final List<Map<String, Object>> graphConfigurations = graph.newTransaction().traversal().V().has(PROPERTY_TEMPLATE, false).valueMap().toList();
+        final List<Map<String, Object>> graphConfigurations = graph.newTransaction().traversal().V().has(HADOOP_GRAPH,false).has(PROPERTY_TEMPLATE, false).valueMap().toList();
         return graphConfigurations.stream().map(this::deserializeVertexProperties).collect(Collectors.toList());
     }
 
@@ -247,6 +332,20 @@ public class ConfigurationManagementGraph {
         }
         templateConfigurations.get(0).remove(PROPERTY_TEMPLATE);
         return deserializeVertexProperties(templateConfigurations.get(0));
+
+    }
+
+    public Map<String, Object> getHadoopTemplateConfiguration() {
+        final List<Map<String, Object>> sparkTemplateConfigurations = graph.newTransaction().traversal().V().has(HADOOP_PROPERTY_TEMPLATE, true).valueMap().toList();
+        if (sparkTemplateConfigurations.size() == 0) return null;
+
+        if (sparkTemplateConfigurations.size() > 1) {
+            log.warn("Your configuration management graph is an a bad state. Please " +
+                "ensure you have just one template configuration. The behavior " +
+                "of the class' APIs are henceforth unpredictable until this is fixed.");
+        }
+        sparkTemplateConfigurations.get(0).remove(HADOOP_PROPERTY_TEMPLATE);
+        return deserializeVertexProperties(sparkTemplateConfigurations.get(0));
 
     }
 
@@ -292,6 +391,14 @@ public class ConfigurationManagementGraph {
     private void updateVertexWithProperties(String propertyKey, Object propertyValue, Map<Object, Object> map) {
         if (graph.traversal().V().has(propertyKey, propertyValue).hasNext()) {
             final Vertex v = graph.traversal().V().has(propertyKey, propertyValue).next();
+            map.forEach((key, value) -> v.property((String) key, value));
+            graph.tx().commit();
+        }
+    }
+
+    private void updateVertexWithProperties(String propertyKey1, Object propertyValue1,String propertyKey2, Object propertyValue2, Map<Object, Object> map) {
+        if (graph.traversal().V().has(propertyKey1, propertyValue1).has(propertyKey2, propertyValue2).hasNext()) {
+            final Vertex v = graph.traversal().V().has(propertyKey1, propertyValue1).has(propertyKey2, propertyValue2).next();
             map.forEach((key, value) -> v.property((String) key, value));
             graph.tx().commit();
         }
